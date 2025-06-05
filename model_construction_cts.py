@@ -29,9 +29,7 @@ def load_and_prepare_data(file_path, test_size=0.20):
     y_full = df['net total']
 
     # Train-test split
-    X_trainval, X_test, y_trainval, y_test = train_test_split(
-        X_full, y_full, test_size=test_size, random_state=42
-    )
+    X_trainval, X_test, y_trainval, y_test = train_test_split(X_full, y_full, test_size=test_size)
 
     return X_trainval, X_test, y_trainval, y_test
 
@@ -61,7 +59,7 @@ def lasso_feature_selection(X, y, cv=5, n_alphas=150):
         selected_features: Series of selected features and their coefficients (non-zero only).
     """
     # Fit LassoCV
-    lasso_cv = LassoCV(cv=cv, random_state=42, max_iter=10000, n_alphas=n_alphas)
+    lasso_cv = LassoCV(cv=cv, max_iter=10000, n_alphas=n_alphas)
     lasso_cv.fit(X, y)
 
     # Extract non-zero coefficients
@@ -91,7 +89,7 @@ def grid_search_random_forest(X_train, y_train, X_val, y_val,
     results = []
     for n_est in n_estimators_list:
         for depth in max_depth_list:
-            rf = RandomForestRegressor(n_estimators=n_est, max_depth=depth, random_state=42)
+            rf = RandomForestRegressor(n_estimators=n_est, max_depth=depth)
             rf.fit(X_train, y_train)
             y_val_pred = rf.predict(X_val)
             rmse_val = np.sqrt(mean_squared_error(y_val, y_val_pred))
@@ -118,7 +116,7 @@ def fit_best_random_forest(X_trainval, y_trainval, X_test, y_test, param):
     best_n = int(best_rf_params['n_estimators'])
     best_depth = int(best_rf_params['max_depth'])
 
-    final_model = RandomForestRegressor(n_estimators=best_n, max_depth=best_depth, random_state=42)
+    final_model = RandomForestRegressor(n_estimators=best_n, max_depth=best_depth)
     final_model.fit(X_trainval, y_trainval)
 
     y_test_pred = final_model.predict(X_test)
@@ -141,8 +139,7 @@ def grid_search_gradient_boosting(X_train, y_train, X_val, y_val, learning_rate_
             for n_est in n_estimators_list:
                 gbm = GradientBoostingRegressor(learning_rate=lr,
                                                 max_depth=depth,
-                                                n_estimators=n_est,
-                                                random_state=42)
+                                                n_estimators=n_est)
                 gbm.fit(X_train, y_train)
                 y_val_pred = gbm.predict(X_val)
                 rmse_val = np.sqrt(mean_squared_error(y_val, y_val_pred))
@@ -172,8 +169,7 @@ def fit_best_gradient_boosting(X_trainval, y_trainval, X_test, y_test, param_df)
 
     final_model = GradientBoostingRegressor(learning_rate=best_lr,
                                             max_depth=best_depth,
-                                            n_estimators=best_n,
-                                            random_state=42)
+                                            n_estimators=best_n)
     final_model.fit(X_trainval, y_trainval)
 
     y_test_pred = final_model.predict(X_test)
@@ -182,7 +178,7 @@ def fit_best_gradient_boosting(X_trainval, y_trainval, X_test, y_test, param_df)
     return final_model, rmse_test
 
 
-# MLP model
+# 3. MLP model
 def train_evaluate_mlp(X_trainval_sel_scaled, y_trainval_sel, X_test_scaled, y_test, input_dim=8, epochs=100, batch_size=64):
     """
     Build, train, and evaluate an MLP model.
@@ -205,29 +201,12 @@ def train_evaluate_mlp(X_trainval_sel_scaled, y_trainval_sel, X_test_scaled, y_t
         layers.Dense(1, activation='linear')
         ])
 
-    print(mlp_model.summary())
-
     # Compile the MLP model
     mlp_model.compile(optimizer="adam", loss="mse", metrics=[tf.keras.metrics.RootMeanSquaredError(name="rmse")])
 
     # Train on dataset
     history = mlp_model.fit(X_trainval_sel_scaled, y_trainval_sel, batch_size=batch_size, epochs=epochs)
 
-    # Plot training RMSE vs. epochs
-    print("")
-    print("")
-    print("Plot:")
-    plt.plot(history.history['rmse'], label='Train RMSE')
-    plt.xlabel("Epoch")
-    plt.ylabel("RMSE")
-    plt.title("MLP Training RMSE over Epochs")
-    plt.legend()
-    plt.show()
-    print("")
-    print("")
-
     # Evaluate on test set
-    print("Evaluation on test set:")
     rmse_test_mlp = mlp_model.evaluate(X_test_scaled, y_test)
-    print(f"MLP Test RMSE: {rmse_test_mlp[1]:.5f}")
-    return mlp_model, rmse_test_mlp[1]
+    return mlp_model, rmse_test_mlp[1], history
