@@ -65,9 +65,19 @@ def lasso_feature_selection(X, y, cv=5, n_alphas=150):
     # Extract non-zero coefficients
     coef_series = pd.Series(lasso_cv.coef_, index=X.columns)
     selected_features = coef_series[coef_series != 0]
+    
+    # Calculate Mean CV‐RMSE for every alpha
+    lasso_mean_mse = lasso_cv.mse_path_.mean(axis=1)
+    lasso_rmse_all = np.sqrt(lasso_mean_mse)
+    df_lasso = pd.DataFrame({'alpha': lasso_cv.alphas_, 'cv_rmse': lasso_rmse_all})
+    
+    # Report top 10 lowest
+    top10 = df_lasso.nsmallest(10, 'cv_rmse')
+    print("Top 10 alphas by lowest CV RMSE:")
+    print(top10.to_string(index=False, float_format="%.8f"))
 
-    # Print results
-    print(f"Optimal alpha is {lasso_cv.alpha_:.5f}")
+    # Print feature selection results
+    print(f"Optimal alpha is {lasso_cv.alpha_:.8f}")
     print("Selected features and coefficients:")
     print(selected_features)
 
