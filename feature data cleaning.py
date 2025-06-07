@@ -1,0 +1,150 @@
+import numpy as np
+import pandas as pd
+
+# data set was downloaded from IPUMS, containing some features I think that would influence the migration rate
+df = pd.read_csv("/Users/linh/Downloads/usa_00006.csv")
+
+# Inspect the whole data set
+print(len(df))
+df.head()
+
+# inspect each column
+
+# for col in df.columns:
+#     print(df[col].unique())
+# df[df['INCTOT']== 1].shape[0]
+# df['INCTOT'].value_counts().sort_index()
+
+# drop unneeded columns
+df = df.drop(columns=['OWNERSHPD', 'PERNUM', 'EDUCD', 'EMPSTATD'])
+
+# check data type
+
+# print(df.info())
+df['PERWT'] = df['PERWT'].astype(int)
+
+print(df.info())
+# df
+
+
+# Below are the descriptions for each import data features:
+# 1. YEAR: from 2010 to 2023 excluding 2020
+# 2. STATEFIP: 51 codes that identify different states (link to the info: https://usa.ipums.org/usa-action/variables/STATEFIP#codes_section)
+# 3. OWNERSHP: 
+# 
+#         0: N/A
+#         1: Owned or being bought (loan)
+#         2: Rented
+# 
+# 4. PERWT: how many persons in the U.S. population are represented by a given person
+# 5. SEX: 
+#         
+#         1: Male
+#         2: Female
+# 
+# 6. Age: Age of person
+# 7. EDUC:
+# 
+#          00	N/A or no schooling
+#          01	Nursery school to grade 4
+#          02	Grade 5, 6, 7, or 8
+#          03	Grade 9
+#          04	Grade 10
+#          05	Grade 11
+#          06	Grade 12
+#          07	1 year of college
+#          08	2 years of college
+#          09	3 years of college
+#          10	4 years of college
+#          11	5+ years of college
+# 
+# 8. EMPSTAT: 
+# 
+#         0: N/A
+#         1: Employed
+#         2: Unemployed
+#         3: Not in labor force
+# 
+# 9. INCTOT: Total personal income
+# 
+#         0000000 = None
+#         9999999 = N/A
+
+# since each feature has unique representation for nan values, need to convert them to nan
+df.loc[df['OWNERSHP'] == 0, 'OWNERSHP'] = np.nan
+df.loc[df['EMPSTAT'] == 0, 'EMPSTAT'] = np.nan
+df.loc[df['INCTOT'] == 9999999, 'INCTOT'] = np.nan
+
+
+# Some I think shoul include in the model:
+# - % Renters: Higher renter proportions may indicate greater short-term migration potential
+# - Median Income: Reflects economic opportunity and affordability, both of which influence migration decisions
+# - % Unemployed: Measures job scarcity
+# - % College Graduates: Proxy for human capital and economic potential of the state
+# - % Young Adults (20–34): Peak migration cohort
+# - % Elderly (65+): Reflects retirement-driven migration
+# - % Female: May be useful for understanding gender-based labor and caregiving migration dynamics
+
+# I will use IPUMS microdata and aggregated by state and year. To ensure population-level accuracy, I will apply PERWT (person weight) when computing:
+# 	•	Proportions (e.g., % renters, % unemployed): weighted share of individuals meeting the condition
+# 	•	Medians (e.g., income, age): weighted median based on cumulative PERWT
+# 
+# Formulas:
+# - **Weighted proportion**:  
+#   $$
+#   \frac{\sum (\text{condition}_i \cdot \text{PERWT}_i)}{\sum \text{PERWT}_i}
+#   $$
+# - **Weighted Median**: Sort values by x_i, compute cumulative sum of PERWT, and find the value at 50% of total weight.
+
+# Plan for calculation:
+# | Feature Name           | How It Was Calculated                                                             |
+# |------------------------|------------------------------------------------------------------------------------|
+# | % Renters              | Share where `OWNERSHP == 2`, weighted by `PERWT`                                  |
+# | Median Age             | Weighted median of `AGE`                                                          |
+# | % Female               | Share where `SEX == 2`, weighted                                                  |
+# | % Age 20–34            | Share where `20 <= AGE <= 34`, weighted                                           |
+# | % Age 65+              | Share where `AGE >= 65`, weighted                                                 |
+# | % College Grads        | Share where `EDUC >= 10`, weighted (4+ years of college)                          |
+# | % Unemployed           | Share where `EMPSTAT == 2`, weighted                                              |
+# | % Not in Labor Force   | Share where `EMPSTAT == 3`, weighted                                              |
+# | Median Income          | Weighted median of `INCTOT`, after removing `INCTOT == 0` and `9999999`           |
+# 
+
+# helper functions
+def weighted_proportion(condition, weights):
+    '''
+    Returns weighted proportion of True values in `condition`.
+    Ignores missing values.
+    '''
+    mask = condition.notna() & weights.notna()
+    return (condition[mask] * weights[mask]).sum() / weights[mask].sum()
+
+def weighted_median(values, weights):
+    """
+    Returns weighted median of `values`.
+    Ignores missing values.
+    """
+    mask = values.notna() & weights.notna()
+    df_w = pd.DataFrame({
+        'val': values[mask],
+        'wt' : weights[mask]
+    }).sort_values('val')
+    cum_w = df_w['wt'].cumsum()
+    cutoff = df_w['wt'].sum() / 2
+    return df_w.loc[cum_w >= cutoff, 'val'].iloc[0]
+
+# calculate each feature by state & year
+state_features = df.groupby(['STATEFIP', 'YEAR']).apply(lambda g: pd.Series({
+        'pct_renters'      : weighted_proportion(g['OWNERSHP'] == 2,    g['PERWT']),
+        'median_age'       : weighted_median(    g['AGE'],               g['PERWT']),
+        'pct_female'       : weighted_proportion(g['SEX']   == 2,    g['PERWT']),
+        'pct_age_20_34'    : weighted_proportion((g['AGE'] >= 20) & (g['AGE'] <= 34), g['PERWT']),
+        'pct_age_65_plus'  : weighted_proportion(g['AGE']   >= 65,   g['PERWT']),
+        'pct_college_grads': weighted_proportion(g['EDUC']  >= 10,   g['PERWT']),
+        'pct_unemployed'   : weighted_proportion(g['EMPSTAT'] == 2,   g['PERWT']),
+        'pct_nilf'         : weighted_proportion(g['EMPSTAT'] == 3,   g['PERWT']),
+        'median_income'    : weighted_median(g['INCTOT'], g['PERWT'])
+    })
+).reset_index()
+
+state_features.head()
